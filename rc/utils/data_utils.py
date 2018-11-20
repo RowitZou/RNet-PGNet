@@ -70,6 +70,8 @@ class CoQADataset(Dataset):
                 for w in qas['annotated_answer']['word']:
                     self.vocab[w] += 1
             self.paragraphs.append(paragraph)
+        # Due to some unknown reasons (maybe pytorch bugs), if you try to use DataParallel(), the following code is
+        # necessary. Otherwise, the model fails to work and tends to suddenly terminate after each epoch.
         if config['use_multi_gpu']:
             batch_num = len(self.examples) // self.batch_size
             self.examples = self.examples[0:(batch_num * self.batch_size)]
@@ -79,7 +81,7 @@ class CoQADataset(Dataset):
         timer.finish()
 
     def __len__(self):
-        return 50 if self.config['debug'] else len(self.examples)
+        return len(self.examples)
 
     def __getitem__(self, idx):
         qas = self.examples[idx]

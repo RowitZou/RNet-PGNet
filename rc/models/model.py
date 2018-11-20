@@ -56,8 +56,8 @@ class Model(object):
         return char_voc
 
     def init_saved_network(self, saved_dir):
-        _ARGUMENTS = ['rnn_padding', 'embed_size', 'hidden_size',
-                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_ff']
+        _ARGUMENTS = ['embed_size', 'hidden_size', 'max_word_length', 'sent_rnn_layers',
+                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb', 'use_dot_attention']
 
         # Load all saved fields.
         fname = os.path.join(saved_dir, Constants._SAVED_WEIGHTS_FILE)

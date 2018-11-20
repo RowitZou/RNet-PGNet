@@ -30,16 +30,22 @@ class RNet(nn.Module):
                                                        num_layers=config['sent_rnn_layers'],
                                                        dropout=config['dropout_rnn'])
 
-        # TODO: Dot Attention
+        if config['use_dot_attention']:
+            self.pair_encoder = module.DotPairEncoder(
+                p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                hidden_size=hidden_size,
+                dropout=config['dropout_rnn']
+            )
+        else:
+            self.pair_encoder = module.PairEncoder(
+                p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                hidden_size=hidden_size,
+                dropout=config['dropout_rnn']
+            )
 
-        self.pair_encoder = module.DotPairEncoder(
-            p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
-            q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
-            hidden_size=hidden_size,
-            dropout=config['dropout_rnn']
-        )
-
-        if config['use_dot_self_match']:
+        if config['use_dot_attention']:
             self.self_match_encoder = module.DotSelfMatchEncoder(
                 input_size=hidden_size * 2,
                 hidden_size=hidden_size,
