@@ -60,10 +60,10 @@ class ModelHandler(object):
         self.model = Model(config, train_set)
 
         # Dot self matching layer requires fewer GPUs
-        if config['use_dot_self_match']:
+        if not config['use_multi_gpu']:
             self.model.network = self.model.network.to(self.device)
         else:
-            self.model.network = nn.DataParallel(self.model.network.to(self.device), [0, 1, 2, 3, 4, 5, 6, 7])
+            self.model.network = nn.DataParallel(self.model.network.to(self.device), [0, 1])
         # self.model.network = self.model.network.to(self.device)
 
         self.config = self.model.config

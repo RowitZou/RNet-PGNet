@@ -100,10 +100,18 @@ class SentenceEncoder(nn.Module):
         q_hidden = question
         p_hidden = passage
         for i in range(self.num_layers):
+            if i == 0:
+                self.question_encoder[i][0].flatten_parameters()
+            else:
+                self.question_encoder[i][1].flatten_parameters()
             q_hidden, _ = self.question_encoder[i](q_hidden)
             question_outputs.append(q_hidden)
 
         for i in range(self.num_layers):
+            if i == 0:
+                self.passage_encoder[i][0].flatten_parameters()
+            else:
+                self.passage_encoder[i][1].flatten_parameters()
             p_hidden, _ = self.passage_encoder[i](p_hidden)
             passage_outputs.append(p_hidden)
 

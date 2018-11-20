@@ -132,7 +132,7 @@ class Model(object):
             loss.backward()
 
             # Clip gradients
-            if self.config['use_dot_self_match']:
+            if not self.config['use_multi_gpu']:
                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.config['grad_clipping'])
             else:
                 torch.nn.utils.clip_grad_norm_(self.network.module.parameters(), self.config['grad_clipping'])
@@ -191,7 +191,7 @@ class Model(object):
         return f1_score, em_score
 
     def save(self, dirname):
-        if self.config['use_dot_self_match']:
+        if not self.config['use_multi_gpu']:
             params = {
                 'state_dict': {
                     'network': self.network.state_dict()

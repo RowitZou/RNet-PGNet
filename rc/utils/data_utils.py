@@ -70,8 +70,9 @@ class CoQADataset(Dataset):
                 for w in qas['annotated_answer']['word']:
                     self.vocab[w] += 1
             self.paragraphs.append(paragraph)
-        # batch_num = len(self.examples) // self.batch_size
-        # self.examples = self.examples[0:(batch_num * self.batch_size)]
+        if config['use_multi_gpu']:
+            batch_num = len(self.examples) // self.batch_size
+            self.examples = self.examples[0:(batch_num * self.batch_size)]
         print('Load {} paragraphs, {} examples.'.format(len(self.paragraphs), len(self.examples)))
         print('Paragraph length: avg = %.1f, max = %d' % (np.average(paragraph_lens), np.max(paragraph_lens)))
         print('Question length: avg = %.1f, max = %d' % (np.average(question_lens), np.max(question_lens)))

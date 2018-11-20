@@ -45,7 +45,7 @@ def get_args():
     group.add_argument('--dropout_rnn', type=float, default=0.2, help='Set RNN dropout in reader.')
     group.add_argument('--dropout_emb', type=float, default=0.5, help='Set dropout for all feedforward layers.')
     group.add_argument('--use_dot_self_match', type=str2bool, default=True, help='Whether to use dot self matching.')
-
+    group.add_argument('--use_multi_gpu', type=str2bool, default=False, help='Whether to use multiple gpus.')
     # Optimizer
     group = parser.add_argument_group('training_spec')
     group.add_argument('--optimizer', type=str, default='adamax', help='Set optimizer.')
