@@ -120,6 +120,51 @@ class SentenceEncoder(nn.Module):
         return question_outputs, passage_outputs
 
 
+class DotAttentionEncoder(nn.Module):
+    def __init__(self, input_size, memory_size, hidden_size, dropout):
+        super(DotAttentionEncoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.input_linear = nn.Sequential(
+            RNNDropout(dropout),
+            nn.Linear(input_size, hidden_size, bias=False),
+            nn.ReLU()
+        )
+        self.memory_linear = nn.Sequential(
+            RNNDropout(dropout),
+            nn.Linear(memory_size, hidden_size, bias=False),
+            nn.ReLU()
+        )
+        self.gate = Gate(input_size + memory_size)
+        self.rnn = nn.GRU(input_size=input_size + memory_size, hidden_size=hidden_size, bidirectional=True)
+
+    def forward(self, memory_input, seq_input, memory_mask):
+        memory_input = memory_input.transpose(0, 1)
+        seq_input = seq_input.transpose(0, 1)  # Turn into batch first.
+        memory_mask = memory_mask.transpose(0, 1)  # Turn into batch first.
+
+        input_ = self.input_linear(seq_input)
+        memory_ = self.memory_linear(memory_input)
+
+        # Compute scores
+        scores = input_.bmm(memory_.transpose(2, 1)) / (self.hidden_size ** 0.5)  # (batch, len1, len2)
+
+        # Mask padding
+        memory_mask = memory_mask.unsqueeze(1).expand(scores.size())  # (batch, len1, len2)
+        scores.masked_fill_(memory_mask, -float('inf'))
+
+        # Normalize with softmax
+        alpha = F.softmax(scores, dim=-1)
+
+        # Take weighted average
+        matched_seq = alpha.bmm(memory_input)
+        rnn_input = torch.cat((seq_input, matched_seq), dim=-1).transpose(0, 1)
+        rnn_input = self.gate(rnn_input)
+
+        self.rnn.flatten_parameters()
+        output, _ = self.rnn(rnn_input)
+        return output
+
+
 class PairEncoderCell(nn.Module):
     def __init__(self, p_input_size, q_input_size, hidden_size, dropout):
         super(PairEncoderCell, self).__init__()
@@ -158,51 +203,6 @@ class PairEncoderCell(nn.Module):
         new_input = self.gate(new_input)
 
         return self.GRUCell(new_input, state)
-
-
-class DotPairEncoder(nn.Module):
-    def __init__(self, p_input_size, q_input_size, hidden_size, dropout):
-        super(DotPairEncoder, self).__init__()
-        self.hidden_size = hidden_size
-        self.input_linear = nn.Sequential(
-            RNNDropout(dropout),
-            nn.Linear(p_input_size, hidden_size, bias=False),
-            nn.ReLU()
-        )
-        self.memory_linear = nn.Sequential(
-            RNNDropout(dropout),
-            nn.Linear(q_input_size, hidden_size, bias=False),
-            nn.ReLU()
-        )
-        self.gate = Gate(p_input_size + q_input_size)
-        self.rnn = nn.GRU(input_size=p_input_size + q_input_size, hidden_size=hidden_size, bidirectional=True)
-
-    def forward(self, q_input, p_input, q_mask):
-        q_input = q_input.transpose(0, 1)
-        p_input = p_input.transpose(0, 1)  # Turn into batch first.
-        q_mask = q_mask.transpose(0, 1)  # Turn into batch first.
-
-        input_ = self.input_linear(p_input)
-        memory_ = self.memory_linear(q_input)
-
-        # Compute scores
-        scores = input_.bmm(memory_.transpose(2, 1)) / (self.hidden_size ** 0.5)  # (batch, len1, len2)
-
-        # Mask padding
-        memory_mask = q_mask.unsqueeze(1).expand(scores.size())  # (batch, len1, len2)
-        scores.masked_fill_(memory_mask, -float('inf'))
-
-        # Normalize with softmax
-        alpha = F.softmax(scores, dim=-1)
-
-        # Take weighted average
-        matched_seq = alpha.bmm(q_input)
-        rnn_input = torch.cat((p_input, matched_seq), dim=-1).transpose(0, 1)
-        rnn_input = self.gate(rnn_input)
-
-        self.rnn.flatten_parameters()
-        output, _ = self.rnn(rnn_input)
-        return output
 
 
 class PairEncoder(nn.Module):
@@ -286,49 +286,6 @@ class SelfMatchEncoder(nn.Module):
         self.rnn.flatten_parameters()
         output, _ = self.rnn(rnn_input)
 
-        return output
-
-
-class DotSelfMatchEncoder(nn.Module):
-    def __init__(self, input_size, hidden_size, dropout):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.input_linear = nn.Sequential(
-            RNNDropout(dropout),
-            nn.Linear(input_size, hidden_size, bias=False),
-            nn.ReLU()
-        )
-        self.memory_linear = nn.Sequential(
-            RNNDropout(dropout),
-            nn.Linear(input_size, hidden_size, bias=False),
-            nn.ReLU()
-        )
-        self.rnn = nn.GRU(input_size=input_size * 2, hidden_size=hidden_size, bidirectional=True)
-
-    def forward(self, p_input, p_mask):
-
-        p_input = p_input.transpose(0, 1)       # Turn into batch first.
-        p_mask = p_mask.transpose(0, 1)         # Turn into batch first.
-
-        input_ = self.input_linear(p_input)
-        memory_ = self.memory_linear(p_input)
-
-        # Compute scores
-        scores = input_.bmm(memory_.transpose(2, 1)) / (self.hidden_size ** 0.5)     # (batch, len1, len2)
-
-        # Mask padding
-        memory_mask = p_mask.unsqueeze(1).expand(scores.size())  # (batch, len1, len2)
-        scores.masked_fill_(memory_mask, -float('inf'))
-
-        # Normalize with softmax
-        alpha = F.softmax(scores, dim=-1)
-
-        # Take weighted average
-        matched_seq = alpha.bmm(p_input)
-        rnn_input = torch.cat((p_input, matched_seq), dim=-1).transpose(0, 1)
-
-        self.rnn.flatten_parameters()
-        output, _ = self.rnn(rnn_input)
         return output
 
 

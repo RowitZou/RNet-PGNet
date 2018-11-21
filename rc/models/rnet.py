@@ -26,28 +26,36 @@ class RNet(nn.Module):
 
         self.sentence_encoder = module.SentenceEncoder(q_input_size=q_input_size,
                                                        p_input_size=p_input_size,
-                                                       hidden_size=hidden_size,
+                                                       hidden_size=hidden_size // 2,
                                                        num_layers=config['sent_rnn_layers'],
                                                        dropout=config['dropout_rnn'])
 
+        self.q_pair_encoder = module.DotAttentionEncoder(
+            input_size=hidden_size * config['sent_rnn_layers'],
+            memory_size=hidden_size * config['sent_rnn_layers'],
+            hidden_size=hidden_size,
+            dropout=config['dropout_rnn']
+        )
+
         if config['use_dot_attention']:
-            self.pair_encoder = module.DotPairEncoder(
-                p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
-                q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+            self.p_pair_encoder = module.DotAttentionEncoder(
+                input_size=hidden_size * config['sent_rnn_layers'],
+                memory_size=hidden_size * config['sent_rnn_layers'] + hidden_size * 2,
                 hidden_size=hidden_size,
                 dropout=config['dropout_rnn']
             )
         else:
-            self.pair_encoder = module.PairEncoder(
-                p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
-                q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+            self.p_pair_encoder = module.PairEncoder(
+                p_input_size=hidden_size * config['sent_rnn_layers'],
+                q_input_size=hidden_size * config['sent_rnn_layers'],
                 hidden_size=hidden_size,
                 dropout=config['dropout_rnn']
             )
 
         if config['use_dot_attention']:
-            self.self_match_encoder = module.DotSelfMatchEncoder(
+            self.self_match_encoder = module.DotAttentionEncoder(
                 input_size=hidden_size * 2,
+                memory_size=hidden_size * 2,
                 hidden_size=hidden_size,
                 dropout=config['dropout_rnn']
             )
@@ -59,7 +67,7 @@ class RNet(nn.Module):
             )
 
         self.pointer_net = module.OutputLayer(
-            q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+            q_input_size=hidden_size * config['sent_rnn_layers'],
             p_input_size=hidden_size * 2,
             hidden_size=hidden_size,
             dropout=config['dropout_rnn']
@@ -79,9 +87,13 @@ class RNet(nn.Module):
 
         q_char = self.char_encoder(q_char)
         p_char = self.char_encoder(p_char)
-        question, passage = self.sentence_encoder(torch.cat((q_emb, q_char), dim=2), torch.cat((p_emb, p_char), dim=2))
-        passage = self.pair_encoder(question, passage, q_mask)
-        passage = self.self_match_encoder(passage, p_mask)
+        question, passage = self.sentence_encoder(torch.cat((q_emb, q_char), dim=-1), torch.cat((p_emb, p_char), dim=-1))
+        question_atten = self.q_pair_encoder(passage, question, p_mask)
+        passage = self.p_pair_encoder(torch.cat((question, question_atten), dim=-1), passage, q_mask)
+        if self.config['use_dot_attention']:
+            passage = self.self_match_encoder(passage, passage, p_mask)
+        else:
+            passage = self.self_match_encoder(passage, p_mask)
         pre = self.pointer_net(question, passage, q_mask, p_mask)
 
         return {'score_s': pre[0].transpose(0, 1),

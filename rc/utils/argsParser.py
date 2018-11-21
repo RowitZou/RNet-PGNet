@@ -37,7 +37,7 @@ def get_args():
     group.add_argument('--hidden_size', type=int, default=100, help='Set hidden size.')
     group.add_argument('--sent_rnn_layers', type=int, default=3, help='Set sentence RNN encoder layers.')
     group.add_argument('--sum_loss', type=str2bool, default=False, help="Set the type of loss.")
-    group.add_argument('--fix_embeddings', type=str2bool, default=False, help='Whether to fix embeddings.')
+    group.add_argument('--fix_embeddings', type=str2bool, default=True, help='Whether to fix embeddings.')
     group.add_argument('--dropout_rnn', type=float, default=0.2, help='Set RNN dropout in reader.')
     group.add_argument('--dropout_emb', type=float, default=0.3, help='Set dropout for all feedforward layers.')
     group.add_argument('--use_dot_attention', type=str2bool, default=True, help='Whether to use dot self matching.')
