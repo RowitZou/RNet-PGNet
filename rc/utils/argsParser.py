@@ -30,7 +30,7 @@ def get_args():
     parser.add_argument('--min_freq', type=int, default=1)
 
     group = parser.add_argument_group('model_spec')
-    group.add_argument('--max_word_length', type=int, default=8, help='Set maximum word length.')
+    group.add_argument('--max_word_length', type=int, default=5, help='Set maximum word length.')
     group.add_argument('--embed_file', type=str, default=None)
     group.add_argument('--embed_size', type=int, default=None)
     group.add_argument('--embed_type', type=str, default='glove', choices=['glove', 'word2vec', 'fasttext'])

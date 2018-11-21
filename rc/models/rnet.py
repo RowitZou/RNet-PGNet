@@ -26,28 +26,28 @@ class RNet(nn.Module):
 
         self.sentence_encoder = module.SentenceEncoder(q_input_size=q_input_size,
                                                        p_input_size=p_input_size,
-                                                       hidden_size=hidden_size // 2,
+                                                       hidden_size=hidden_size,
                                                        num_layers=config['sent_rnn_layers'],
                                                        dropout=config['dropout_rnn'])
 
         self.q_pair_encoder = module.DotAttentionEncoder(
-            input_size=hidden_size * config['sent_rnn_layers'],
-            memory_size=hidden_size * config['sent_rnn_layers'],
+            input_size=hidden_size * 2 *config['sent_rnn_layers'],
+            memory_size=hidden_size * 2 * config['sent_rnn_layers'],
             hidden_size=hidden_size,
             dropout=config['dropout_rnn']
         )
 
         if config['use_dot_attention']:
             self.p_pair_encoder = module.DotAttentionEncoder(
-                input_size=hidden_size * config['sent_rnn_layers'],
-                memory_size=hidden_size * config['sent_rnn_layers'] + hidden_size * 2,
+                input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                memory_size=hidden_size * 2 * config['sent_rnn_layers'] + hidden_size * 2,
                 hidden_size=hidden_size,
                 dropout=config['dropout_rnn']
             )
         else:
             self.p_pair_encoder = module.PairEncoder(
-                p_input_size=hidden_size * config['sent_rnn_layers'],
-                q_input_size=hidden_size * config['sent_rnn_layers'],
+                p_input_size=hidden_size * 2 * config['sent_rnn_layers'],
+                q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
                 hidden_size=hidden_size,
                 dropout=config['dropout_rnn']
             )
@@ -67,7 +67,7 @@ class RNet(nn.Module):
             )
 
         self.pointer_net = module.OutputLayer(
-            q_input_size=hidden_size * config['sent_rnn_layers'],
+            q_input_size=hidden_size * 2 * config['sent_rnn_layers'],
             p_input_size=hidden_size * 2,
             hidden_size=hidden_size,
             dropout=config['dropout_rnn']
