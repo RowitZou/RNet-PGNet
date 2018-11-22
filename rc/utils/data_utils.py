@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from torch.utils.data import Dataset
 from . import constants as Constants
 from .timer import Timer
+from allennlp.modules.elmo import batch_to_ids
 
 ################################################################################
 # Dataset Prep #
@@ -136,7 +137,7 @@ def get_processed_file_contents(file_path, encoding="utf-8"):
 ################################################################################
 
 
-def sanitize_input(sample_batch, vocab, training=True):
+def sanitize_input(sample_batch, vocab):
     """
     Reformats sample_batch for easy vectorization.
     Args:
@@ -184,49 +185,56 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
 
     # Initialize all relevant parameters to None:
     targets = None
-
     max_word_len = config['max_word_length']
 
     # Part 1: Question Words
     # Batch questions ( sum_bs(n_sect), len_q)
     max_q_len = max([len(q) for q in batch['question']])
-    xq = torch.LongTensor(batch_size, max_q_len).fill_(0)
     xq_mask = torch.ByteTensor(batch_size, max_q_len).fill_(1)
     for i, q in enumerate(batch['question']):
-        xq[i, :len(q)].copy_(torch.LongTensor(q))
         xq_mask[i, :len(q)].fill_(0)
-
-    xq_char = torch.LongTensor(batch_size, max_q_len, max_word_len).fill_(0)
-    for i, sent in enumerate(batch['question_text']):
-        for j, word in enumerate(sent):
-            word = word.lower()
-            char_range = (len(word) if len(word) < max_word_len else max_word_len)
-            processed_char = []
-            for k in range(char_range):
-                processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
-            xq_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
 
     # Part 2: Document Words
     max_d_len = max([len(d) for d in batch['evidence']])
-    xd = torch.LongTensor(batch_size, max_d_len).fill_(0)
     xd_mask = torch.ByteTensor(batch_size, max_d_len).fill_(1)
-
-    # 2(a): fill up DrQA section variables
     for i, d in enumerate(batch['evidence']):
-        xd[i, :len(d)].copy_(torch.LongTensor(d))
         xd_mask[i, :len(d)].fill_(0)
 
-    xd_char = torch.LongTensor(batch_size, max_d_len, max_word_len).fill_(0)
-    for i, sent in enumerate(batch['evidence_text']):
-        for j, word in enumerate(sent):
-            word = word.lower()
-            char_range = (len(word) if len(word) < max_word_len else max_word_len)
-            processed_char = []
-            for k in range(char_range):
-                processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
-            xd_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
+    # part 3: Char ids
+    if not config['use_elmo']:
+        xq = torch.LongTensor(batch_size, max_q_len).fill_(0)
+        for i, q in enumerate(batch['question']):
+            xq[i, :len(q)].copy_(torch.LongTensor(q))
 
-    # Part 3: Target representations
+        xd = torch.LongTensor(batch_size, max_d_len).fill_(0)
+        for i, d in enumerate(batch['evidence']):
+            xd[i, :len(d)].copy_(torch.LongTensor(d))
+
+        xq_char = torch.LongTensor(batch_size, max_q_len, max_word_len).fill_(0)
+        for i, sent in enumerate(batch['question_text']):
+            for j, word in enumerate(sent):
+                word = word.lower()
+                char_range = (len(word) if len(word) < max_word_len else max_word_len)
+                processed_char = []
+                for k in range(char_range):
+                    processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
+                xq_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
+
+        xd_char = torch.LongTensor(batch_size, max_d_len, max_word_len).fill_(0)
+        for i, sent in enumerate(batch['evidence_text']):
+            for j, word in enumerate(sent):
+                word = word.lower()
+                char_range = (len(word) if len(word) < max_word_len else max_word_len)
+                processed_char = []
+                for k in range(char_range):
+                    processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
+                xd_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
+
+    else:
+        xq = batch_to_ids(batch['question_text'])
+        xd = batch_to_ids(batch['evidence_text'])
+
+    # Part 4: Target representations
     if config['sum_loss']:  # For sum_loss "targets" acts as a mask rather than indices.
         targets = torch.ByteTensor(batch_size, max_d_len, 2).fill_(0)
         for i, _targets in enumerate(batch['targets']):
@@ -240,15 +248,26 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
             targets[i][1] = _target[1]
 
     torch.set_grad_enabled(training)
-    example = {'batch_size': batch_size,
-               'answers': batch['answers'],
-               'xq': xq.to(device) if device else xq,
-               'xq_mask': xq_mask.to(device) if device else xq_mask,
-               'xq_char': xq_char.to(device) if device else xq_char,
-               'xd': xd.to(device) if device else xd,
-               'xd_mask': xd_mask.to(device) if device else xd_mask,
-               'xd_char': xd_char.to(device) if device else xd_char,
-               'targets': targets.to(device) if device else targets,
-               'evidence_text': batch['evidence_text']}
+
+    if not config['use_elmo']:
+        example = {'batch_size': batch_size,
+                   'answers': batch['answers'],
+                   'xq': xq.to(device) if device else xq,
+                   'xq_mask': xq_mask.to(device) if device else xq_mask,
+                   'xq_char': xq_char.to(device) if device else xq_char,
+                   'xd': xd.to(device) if device else xd,
+                   'xd_mask': xd_mask.to(device) if device else xd_mask,
+                   'xd_char': xd_char.to(device) if device else xd_char,
+                   'targets': targets.to(device) if device else targets,
+                   'evidence_text': batch['evidence_text']}
+    else:
+        example = {'batch_size': batch_size,
+                   'answers': batch['answers'],
+                   'xq': xq.to(device) if device else xq,
+                   'xq_mask': xq_mask.to(device) if device else xq_mask,
+                   'xd': xd.to(device) if device else xd,
+                   'xd_mask': xd_mask.to(device) if device else xd_mask,
+                   'targets': targets.to(device) if device else targets,
+                   'evidence_text': batch['evidence_text']}
 
     return example

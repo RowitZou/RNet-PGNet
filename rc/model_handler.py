@@ -59,7 +59,6 @@ class ModelHandler(object):
         self._n_train_examples = 0
         self.model = Model(config, train_set)
 
-        # Dot self matching layer requires fewer GPUs
         if not config['use_multi_gpu']:
             self.model.network = self.model.network.to(self.device)
         else:
@@ -155,7 +154,7 @@ class ModelHandler(object):
         start_time = time.time()
         output = []
         for step, input_batch in enumerate(data_loader):
-            input_batch = sanitize_input(input_batch, self.model.word_dict, training=training)
+            input_batch = sanitize_input(input_batch, self.model.word_dict)
             x_batch = vectorize_input(input_batch, self.config, self.model.char_dict, training=training, device=self.device)
             if not x_batch:
                 continue  # When there are no target spans present in the batch

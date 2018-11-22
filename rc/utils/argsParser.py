@@ -42,6 +42,11 @@ def get_args():
     group.add_argument('--dropout_emb', type=float, default=0.3, help='Set dropout for all feedforward layers.')
     group.add_argument('--use_dot_attention', type=str2bool, default=True, help='Whether to use dot self matching.')
     group.add_argument('--use_multi_gpu', type=str2bool, default=False, help='Whether to use multiple gpus.')
+    group.add_argument('--use_elmo', type=str2bool, default=False, help='Whether to use elmo word embeddings.')
+    group.add_argument('--elmo_fine_tune', type=str2bool, default=False, help="Whether to fine-tune the elmo model.")
+    group.add_argument('--elmo_options', type=str, default='elmo/elmo_options.json')
+    group.add_argument('--elmo_weights', type=str, default='elmo/elmo_weights.hdf5')
+
     # Optimizer
     group = parser.add_argument_group('training_spec')
     group.add_argument('--optimizer', type=str, default='adamax', help='Set optimizer.')

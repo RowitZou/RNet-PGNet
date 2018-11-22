@@ -8,7 +8,6 @@ from gensim.models.keyedvectors import KeyedVectors
 
 from rc.utils import constants as Constants
 from rc.utils.timer import Timer
-from collections import Counter
 
 
 ################################################################################
@@ -37,7 +36,7 @@ class WordModel(object):
     for any pretrained word vectors.
     """
 
-    def __init__(self, embed_size=None, filename=None, embed_type='glove', additional_vocab=Counter()):
+    def __init__(self, additional_vocab, embed_size=None, filename=None, embed_type='glove'):
         if filename is None:
             if embed_size is None:
                 raise Exception('Either embed_file or embed_size needs to be specified.')

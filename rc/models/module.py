@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from rc.utils import constants as Constants
+from allennlp.modules.elmo import Elmo
 
 
 class Gate(nn.Module):
@@ -29,11 +30,44 @@ class RNNDropout(nn.Module):
         return self.dropout(mask) * input
 
 
+class ElmoLayer(nn.Module):
+    def __init__(self, options_file=None, weights_file=None, requires_grad=False):
+        super(ElmoLayer, self).__init__()
+        if not options_file:
+            options_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/" \
+                           "2x4096_512_2048cnn_2xhighway_5.5B/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json"
+        if not weights_file:
+            weights_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/" \
+                           "2x4096_512_2048cnn_2xhighway_5.5B/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5"
+
+        self.elmo = Elmo(options_file, weights_file, 1, dropout=0, requires_grad=requires_grad)
+
+    def forward(self, char_ids):
+        embeddings = self.elmo(char_ids)
+        return embeddings['elmo_representations'][0]
+
+
+class WordEmbedLayer(nn.Module):
+
+    def __init__(self, vocab_size, embed_size, pretrained_vecs=None, fix_embeddings=True):
+        super(WordEmbedLayer, self).__init__()
+        self.word_embed_layer = nn.Embedding(vocab_size, embed_size, padding_idx=0,
+                                             _weight=torch.from_numpy(pretrained_vecs).float()
+                                             if pretrained_vecs is not None else None)
+        if fix_embeddings:
+            for p in self.word_embed_layer.parameters():
+                p.requires_grad = False
+
+        self.embedding_dim = self.word_embed_layer.embedding_dim
+
+    def forward(self, word_input):
+        return self.word_embed_layer(word_input)
+
+
 class CharEncoder(nn.Module):
 
-    def __init__(self, char_emb_size, hidden_size, dropout):
+    def __init__(self, char_emb_size, hidden_size):
         super(CharEncoder, self).__init__()
-        self.dropout = dropout
         self.char_embeddings = nn.Embedding(len(Constants._ALPHABETS) + 2, char_emb_size, padding_idx=0)
 
         # Here we employ bidirectional GRU to encode char-level embeddings. It can be replaced by CNN layer.
@@ -49,19 +83,19 @@ class CharEncoder(nn.Module):
         self.biGRU_char.flatten_parameters()
         char_output, _ = self.biGRU_char(char_embedding)
         char_output = char_output[len(char_output) - 1].contiguous().view([passage_length, batch_size, -1])
-        char_output = F.dropout(char_output, self.dropout, self.training)
+
         # output [passage_length, batch_size, char_hidden_size * 2]
         return char_output
 
 
 class SentenceEncoder(nn.Module):
-    def __init__(self, q_input_size, p_input_size, hidden_size, num_layers, dropout):
+    def __init__(self, q_input_size, p_input_size, hidden_size, num_layers, dropout_rnn, dropout_embed):
         super(SentenceEncoder, self).__init__()
 
         self.num_layers = num_layers
         self.question_encoder = nn.ModuleList([
             nn.Sequential(
-                # nn.Dropout(dropout),
+                nn.Dropout(dropout_embed),
                 nn.GRU(input_size=q_input_size,
                        hidden_size=hidden_size,
                        bidirectional=True)
@@ -70,7 +104,7 @@ class SentenceEncoder(nn.Module):
             for _ in range(num_layers - 1):
                 self.question_encoder.append(
                     nn.Sequential(
-                        nn.Dropout(dropout),
+                        nn.Dropout(dropout_rnn),
                         nn.GRU(input_size=hidden_size * 2,
                                hidden_size=hidden_size,
                                bidirectional=True)
@@ -78,7 +112,7 @@ class SentenceEncoder(nn.Module):
 
         self.passage_encoder = nn.ModuleList([
             nn.Sequential(
-                # nn.Dropout(dropout),
+                nn.Dropout(dropout_embed),
                 nn.GRU(input_size=p_input_size,
                        hidden_size=hidden_size,
                        bidirectional=True)
@@ -87,7 +121,7 @@ class SentenceEncoder(nn.Module):
             for _ in range(num_layers - 1):
                 self.passage_encoder.append(
                     nn.Sequential(
-                        nn.Dropout(dropout),
+                        nn.Dropout(dropout_rnn),
                         nn.GRU(input_size=hidden_size * 2,
                                hidden_size=hidden_size,
                                bidirectional=True)
@@ -100,18 +134,12 @@ class SentenceEncoder(nn.Module):
         q_hidden = question
         p_hidden = passage
         for i in range(self.num_layers):
-            if i == 0:
-                self.question_encoder[i][0].flatten_parameters()
-            else:
-                self.question_encoder[i][1].flatten_parameters()
+            self.question_encoder[i][1].flatten_parameters()
             q_hidden, _ = self.question_encoder[i](q_hidden)
             question_outputs.append(q_hidden)
 
         for i in range(self.num_layers):
-            if i == 0:
-                self.passage_encoder[i][0].flatten_parameters()
-            else:
-                self.passage_encoder[i][1].flatten_parameters()
+            self.passage_encoder[i][1].flatten_parameters()
             p_hidden, _ = self.passage_encoder[i](p_hidden)
             passage_outputs.append(p_hidden)
 

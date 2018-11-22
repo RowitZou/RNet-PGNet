@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
@@ -19,26 +18,30 @@ class Model(object):
     """
 
     def __init__(self, config, train_set=None):
-        # Book-keeping.
         self.config = config
         self.char_dict = self.init_char_dict()
         if self.config['pretrained']:
             self.init_saved_network(self.config['pretrained'])
         else:
             assert train_set is not None
-            print('Train vocab: {}'.format(len(train_set.vocab)))
-            vocab = Counter()
-            for w in train_set.vocab:
-                if train_set.vocab[w] >= config['min_freq']:
-                    vocab[w] = train_set.vocab[w]
-            print('Pruned train vocab: {}'.format(len(vocab)))
-            # Building network.
-            word_model = WordModel(embed_size=self.config['embed_size'],
-                                   filename=self.config['embed_file'],
-                                   embed_type=self.config['embed_type'],
-                                   additional_vocab=vocab)
-            self.config['embed_size'] = word_model.embed_size
-            self._init_new_network(word_model)
+            if not config['use_elmo']:
+                print('Train vocab: {}'.format(len(train_set.vocab)))
+                vocab = Counter()
+                for w in train_set.vocab:
+                    if train_set.vocab[w] >= config['min_freq']:
+                        vocab[w] = train_set.vocab[w]
+                print('Pruned train vocab: {}'.format(len(vocab)))
+                # Building network.
+                word_model = WordModel(additional_vocab=vocab,
+                                       embed_size=self.config['embed_size'],
+                                       filename=self.config['embed_file'],
+                                       embed_type=self.config['embed_type'])
+                self.config['embed_size'] = word_model.embed_size
+                self.word_dict = word_model.get_vocab()
+            else:
+                self.word_dict = Counter()
+                word_model = None
+            self.network = RNet(self.config, word_model)
 
         num_params = 0
         for name, p in self.network.named_parameters():
@@ -56,7 +59,7 @@ class Model(object):
         return char_voc
 
     def init_saved_network(self, saved_dir):
-        _ARGUMENTS = ['embed_size', 'hidden_size', 'max_word_length', 'sent_rnn_layers',
+        _ARGUMENTS = ['embed_size', 'hidden_size', 'max_word_length', 'sent_rnn_layers', 'use_elmo',
                       'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb', 'use_dot_attention']
 
         # Load all saved fields.
@@ -64,35 +67,26 @@ class Model(object):
         print('[ Loading saved models %s ]' % fname)
         saved_params = torch.load(fname, map_location=lambda storage, loc: storage)
         self.word_dict = saved_params['word_dict']
-        self.state_dict = saved_params['state_dict']
+        state_dict = saved_params['state_dict']
         for k in _ARGUMENTS:
             if saved_params['config'][k] != self.config[k]:
                 print('Overwrite {}: {} -> {}'.format(k, self.config[k], saved_params['config'][k]))
                 self.config[k] = saved_params['config'][k]
 
-        w_embedding = self._init_embedding(len(self.word_dict) + 1, self.config['embed_size'])
-        self.network = RNet(self.config, w_embedding)
+        if not self.config['use_elmo']:
+            word_model = WordModel(additional_vocab=self.word_dict,
+                                   embed_size=self.config['embed_size'])
+        else:
+            word_model = None
+        self.network = RNet(self.config, word_model)
 
         # Merge the arguments
-        if self.state_dict:
+        if state_dict:
             merged_state_dict = self.network.state_dict()
-            for k, v in self.state_dict['network'].items():
+            for k, v in state_dict['network'].items():
                 if k in merged_state_dict:
                     merged_state_dict[k] = v
             self.network.load_state_dict(merged_state_dict)
-
-    def _init_new_network(self, word_model):
-        self.word_dict = word_model.get_vocab()
-        w_embedding = self._init_embedding(word_model.vocab_size, self.config['embed_size'],
-                                           pretrained_vecs=word_model.get_word_vecs())
-        self.network = RNet(self.config, w_embedding)
-
-    def _init_embedding(self, vocab_size, embed_size, pretrained_vecs=None):
-        """Initializes the embeddings
-        """
-        return nn.Embedding(vocab_size, embed_size, padding_idx=0,
-                            _weight=torch.from_numpy(pretrained_vecs).float()
-                            if pretrained_vecs is not None else None)
 
     def _init_optimizer(self):
         parameters = [p for p in self.network.parameters() if p.requires_grad]
