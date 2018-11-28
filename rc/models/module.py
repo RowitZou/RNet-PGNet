@@ -9,7 +9,7 @@ class Gate(nn.Module):
     def __init__(self, input_size):
         super(Gate, self).__init__()
         self.gate = nn.Sequential(
-            nn.Linear(input_size, input_size, bias=False),
+            nn.Linear(input_size, input_size, bias=True),
             nn.Sigmoid()
         )
 
@@ -26,7 +26,7 @@ class RNNDropout(nn.Module):
 
         if not self.training:
             return input
-        mask = input.new_ones(1, input.size(1), input.size(2), requires_grad=False)
+        mask = input.new_ones(input.size(0), 1, input.size(2), requires_grad=False)
         return self.dropout(mask) * input
 
 
@@ -101,11 +101,11 @@ class SentenceEncoder(nn.Module):
                        bidirectional=True)
             )])
         if num_layers > 1:
-            for _ in range(num_layers - 1):
+            for i in range(num_layers - 1):
                 self.question_encoder.append(
                     nn.Sequential(
                         nn.Dropout(dropout_rnn),
-                        nn.GRU(input_size=hidden_size * 2,
+                        nn.GRU(input_size=q_input_size + hidden_size * 2 * (i + 1),
                                hidden_size=hidden_size,
                                bidirectional=True)
                     ))
@@ -118,11 +118,11 @@ class SentenceEncoder(nn.Module):
                        bidirectional=True)
             )])
         if num_layers > 1:
-            for _ in range(num_layers - 1):
+            for i in range(num_layers - 1):
                 self.passage_encoder.append(
                     nn.Sequential(
                         nn.Dropout(dropout_rnn),
-                        nn.GRU(input_size=hidden_size * 2,
+                        nn.GRU(input_size=p_input_size + hidden_size * 2 * (i + 1),
                                hidden_size=hidden_size,
                                bidirectional=True)
                     ))
@@ -131,17 +131,22 @@ class SentenceEncoder(nn.Module):
 
         question_outputs = []
         passage_outputs = []
-        q_hidden = question
-        p_hidden = passage
+        question_inputs = []
+        passage_inputs = []
+        question_inputs.append(question)
+        passage_inputs.append(passage)
+
         for i in range(self.num_layers):
             self.question_encoder[i][1].flatten_parameters()
-            q_hidden, _ = self.question_encoder[i](q_hidden)
+            q_hidden, _ = self.question_encoder[i](torch.cat(question_inputs, dim=-1))
             question_outputs.append(q_hidden)
+            question_inputs.append(q_hidden)
 
         for i in range(self.num_layers):
             self.passage_encoder[i][1].flatten_parameters()
-            p_hidden, _ = self.passage_encoder[i](p_hidden)
+            p_hidden, _ = self.passage_encoder[i](torch.cat(passage_inputs, dim=-1))
             passage_outputs.append(p_hidden)
+            passage_inputs.append(p_hidden)
 
         question_outputs = torch.cat(question_outputs, dim=-1)
         passage_outputs = torch.cat(passage_outputs, dim=-1)
@@ -350,11 +355,12 @@ class OutputLayer(nn.Module):
         pre = []
         p_temp = self.passage_w[0](p_input)
 
-        for t in range(2):
+        for t in range(3):
             p_weights = p_temp + self.passage_w[1](state)
             p_weights = self.passage_linear(p_weights)
             p_weights.masked_fill_(p_mask.unsqueeze(2), -float('inf'))
-            pre.append(F.log_softmax(p_weights.squeeze(), dim=0))
+            if t > 0:
+                pre.append(F.log_softmax(p_weights.squeeze(), dim=0))
             p_attention = F.softmax(p_weights, dim=0)
             p_vecs = torch.sum(p_attention * p_input, dim=0)
             state = self.rnn_cell(p_vecs, state)
