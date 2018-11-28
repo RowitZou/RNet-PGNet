@@ -20,7 +20,7 @@ from allennlp.modules.elmo import batch_to_ids
 
 
 def prepare_datasets(config):
-    train_set = None if config['trainset'] is None else CoQADataset(config['trainset'], config)
+    train_set = None if config['trainset'] is None else CoQADataset(config['trainset'], config, training=True)
     dev_set = None if config['devset'] is None else CoQADataset(config['devset'], config)
     test_set = None if config['testset'] is None else CoQADataset(config['testset'], config)
     return {'train': train_set, 'dev': dev_set, 'test': test_set}
@@ -33,7 +33,7 @@ def prepare_datasets(config):
 class CoQADataset(Dataset):
     """CoQA dataset."""
 
-    def __init__(self, filename, config):
+    def __init__(self, filename, config, training=False):
         timer = Timer('Load %s' % filename)
         self.filename = filename
         self.config = config
@@ -73,7 +73,7 @@ class CoQADataset(Dataset):
             self.paragraphs.append(paragraph)
         # Due to some unknown reasons (maybe pytorch bugs), if you try to use DataParallel(), the following code is
         # necessary. Otherwise, the model fails to work and tends to suddenly terminate after each epoch.
-        if config['use_multi_gpu']:
+        if training and config['use_multi_gpu']:
             batch_num = len(self.examples) // self.batch_size
             self.examples = self.examples[0:(batch_num * self.batch_size)]
         print('Load {} paragraphs, {} examples.'.format(len(self.paragraphs), len(self.examples)))
@@ -96,7 +96,9 @@ class CoQADataset(Dataset):
                   'question': question,
                   'answers': answers,
                   'evidence': paragraph['annotated_context'],
-                  'targets': qas['answer_span']}
+                  'targets': None}
+        if 'answer_span' in qas:
+            sample['targets'] = qas['answer_span']
 
         return sample
 
@@ -184,7 +186,6 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
     batch_size = len(batch['question'])
 
     # Initialize all relevant parameters to None:
-    targets = None
     max_word_len = config['max_word_length']
 
     # Part 1: Question Words
@@ -235,7 +236,10 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
         xd = batch_to_ids(batch['evidence_text'])
 
     # Part 4: Target representations
-    if config['sum_loss']:  # For sum_loss "targets" acts as a mask rather than indices.
+    if not batch['targets'][0]:
+        targets = None
+
+    elif config['sum_loss']:  # For sum_loss "targets" acts as a mask rather than indices.
         targets = torch.ByteTensor(batch_size, max_d_len, 2).fill_(0)
         for i, _targets in enumerate(batch['targets']):
             for s, e in _targets:
@@ -258,7 +262,6 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
                    'xd': xd.to(device) if device else xd,
                    'xd_mask': xd_mask.to(device) if device else xd_mask,
                    'xd_char': xd_char.to(device) if device else xd_char,
-                   'targets': targets.to(device) if device else targets,
                    'evidence_text': batch['evidence_text']}
     else:
         example = {'batch_size': batch_size,
@@ -267,7 +270,8 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
                    'xq_mask': xq_mask.to(device) if device else xq_mask,
                    'xd': xd.to(device) if device else xd,
                    'xd_mask': xd_mask.to(device) if device else xd_mask,
-                   'targets': targets.to(device) if device else targets,
                    'evidence_text': batch['evidence_text']}
+    if not targets is None:
+        example['targets'] = targets.to(device) if device else targets
 
     return example
