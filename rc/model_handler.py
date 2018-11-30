@@ -154,7 +154,7 @@ class ModelHandler(object):
         start_time = time.time()
         output = []
         for step, input_batch in enumerate(data_loader):
-            input_batch = sanitize_input(input_batch, self.model.word_dict)
+            input_batch = sanitize_input(input_batch, self.config, self.model.word_dict)
             x_batch = vectorize_input(input_batch, self.config, self.model.char_dict, training=training, device=self.device)
             if not x_batch:
                 continue  # When there are no target spans present in the batch

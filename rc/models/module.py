@@ -89,68 +89,41 @@ class CharEncoder(nn.Module):
 
 
 class SentenceEncoder(nn.Module):
-    def __init__(self, q_input_size, p_input_size, hidden_size, num_layers, dropout_rnn, dropout_embed):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rnn, dropout_embed):
         super(SentenceEncoder, self).__init__()
 
         self.num_layers = num_layers
-        self.question_encoder = nn.ModuleList([
+        self.sentence_encoder = nn.ModuleList([
             nn.Sequential(
                 nn.Dropout(dropout_embed),
-                nn.GRU(input_size=q_input_size,
+                nn.GRU(input_size=input_size,
                        hidden_size=hidden_size,
                        bidirectional=True)
             )])
         if num_layers > 1:
             for i in range(num_layers - 1):
-                self.question_encoder.append(
+                self.sentence_encoder.append(
                     nn.Sequential(
                         nn.Dropout(dropout_rnn),
-                        nn.GRU(input_size=q_input_size + hidden_size * 2 * (i + 1),
+                        nn.GRU(input_size=input_size + hidden_size * 2 * (i + 1),
                                hidden_size=hidden_size,
                                bidirectional=True)
                     ))
 
-        self.passage_encoder = nn.ModuleList([
-            nn.Sequential(
-                nn.Dropout(dropout_embed),
-                nn.GRU(input_size=p_input_size,
-                       hidden_size=hidden_size,
-                       bidirectional=True)
-            )])
-        if num_layers > 1:
-            for i in range(num_layers - 1):
-                self.passage_encoder.append(
-                    nn.Sequential(
-                        nn.Dropout(dropout_rnn),
-                        nn.GRU(input_size=p_input_size + hidden_size * 2 * (i + 1),
-                               hidden_size=hidden_size,
-                               bidirectional=True)
-                    ))
+    def forward(self, input_sent):
 
-    def forward(self, question, passage):
-
-        question_outputs = []
-        passage_outputs = []
-        question_inputs = []
-        passage_inputs = []
-        question_inputs.append(question)
-        passage_inputs.append(passage)
+        outputs = list()
+        inputs = list()
+        inputs.append(input_sent)
 
         for i in range(self.num_layers):
-            self.question_encoder[i][1].flatten_parameters()
-            q_hidden, _ = self.question_encoder[i](torch.cat(question_inputs, dim=-1))
-            question_outputs.append(q_hidden)
-            question_inputs.append(q_hidden)
+            self.sentence_encoder[i][1].flatten_parameters()
+            hidden, _ = self.sentence_encoder[i](torch.cat(inputs, dim=-1))
+            outputs.append(hidden)
+            inputs.append(hidden)
 
-        for i in range(self.num_layers):
-            self.passage_encoder[i][1].flatten_parameters()
-            p_hidden, _ = self.passage_encoder[i](torch.cat(passage_inputs, dim=-1))
-            passage_outputs.append(p_hidden)
-            passage_inputs.append(p_hidden)
-
-        question_outputs = torch.cat(question_outputs, dim=-1)
-        passage_outputs = torch.cat(passage_outputs, dim=-1)
-        return question_outputs, passage_outputs
+        outputs = torch.cat(outputs, dim=-1)
+        return outputs
 
 
 class DotAttentionEncoder(nn.Module):

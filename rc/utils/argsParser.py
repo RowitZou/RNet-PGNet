@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument('--random_seed', type=int, default=123, help='Random seed')
     parser.add_argument('--n_history', type=int, default=0)
     parser.add_argument('--min_freq', type=int, default=1)
+    parser.add_argument('--split_history', type=str2bool, default=False)
 
     group = parser.add_argument_group('model_spec')
     group.add_argument('--max_word_length', type=int, default=5, help='Set maximum word length.')
@@ -40,7 +41,6 @@ def get_args():
     group.add_argument('--fix_embeddings', type=str2bool, default=True, help='Whether to fix embeddings.')
     group.add_argument('--dropout_rnn', type=float, default=0.2, help='Set RNN dropout in reader.')
     group.add_argument('--dropout_emb', type=float, default=0.3, help='Set dropout for all feedforward layers.')
-    group.add_argument('--use_dot_attention', type=str2bool, default=True, help='Whether to use dot self matching.')
     group.add_argument('--use_multi_gpu', type=str2bool, default=False, help='Whether to use multiple gpus.')
     group.add_argument('--use_elmo', type=str2bool, default=False, help='Whether to use elmo word embeddings.')
     group.add_argument('--elmo_fine_tune', type=str2bool, default=False, help="Whether to fine-tune the elmo model.")

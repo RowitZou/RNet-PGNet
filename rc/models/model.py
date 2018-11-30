@@ -60,7 +60,7 @@ class Model(object):
 
     def init_saved_network(self, saved_dir):
         _ARGUMENTS = ['embed_size', 'hidden_size', 'max_word_length', 'sent_rnn_layers', 'use_elmo',
-                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb', 'use_dot_attention']
+                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb']
 
         # Load all saved fields.
         fname = os.path.join(saved_dir, Constants._SAVED_WEIGHTS_FILE)
