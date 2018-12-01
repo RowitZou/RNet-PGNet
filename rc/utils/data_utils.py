@@ -61,6 +61,16 @@ class CoQADataset(Dataset):
                             history_i.extend(a)
                             history_temp.append(history_i)
                     qas['annotated_history'] = history_temp
+                else:
+                    history_temp = []
+                    if n_history > 0:
+                        for i, (q, a) in enumerate(history[-n_history:]):
+                            d = n_history - i
+                            history_temp.append('<Q{}>'.format(d))
+                            history_temp.extend(q)
+                            history_temp.append('<A{}>'.format(d))
+                            history_temp.extend(a)
+                    qas['annotated_history'] = history_temp
                 temp.extend(qas['annotated_question']['word'])
                 history.append((qas['annotated_question']['word'], qas['annotated_answer']['word']))
                 qas['annotated_question']['word'] = temp
@@ -71,6 +81,9 @@ class CoQADataset(Dataset):
                     for s in qas['annotated_history']:
                         for w in s:
                             self.vocab[w] += 1
+                else:
+                    for w in qas['annotated_history']:
+                        self.vocab[w] += 1
                 for w in qas['annotated_question']['word']:
                     self.vocab[w] += 1
                 for w in paragraph['annotated_context']['word']:
@@ -169,6 +182,9 @@ def sanitize_input(sample_batch, config, vocab):
                 for w in s:
                     processed_s.append(vocab[w] if w in vocab else vocab[Constants._UNK_TOKEN])
                 processed_h.append(processed_s)
+        else:
+            for w in history:
+                processed_h.append(vocab[w] if w in vocab else vocab[Constants._UNK_TOKEN])
         for w in question:
             processed_q.append(vocab[w] if w in vocab else vocab[Constants._UNK_TOKEN])
         for w in evidence:
@@ -220,20 +236,27 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
         xd_mask[i, :len(d)].fill_(0)
 
     # Part 3: History Words
-    history_length = []
-    turn_length = []
-    for s in batch['history']:
-        turn_length.append(len(s))
-        for h in s:
-            history_length.append(len(h))
-    max_h_len = max(history_length)
-    max_t_len = max(turn_length)
-    xh_mask = torch.ByteTensor(batch_size, max_t_len, max_h_len).fill_(1)
-    xh_t_mask = torch.ByteTensor(batch_size, max_t_len).fill_(1)
-    for i, s in enumerate(batch['history']):
-        xh_t_mask[i, :len(s)].fill_(0)
-        for j, h in enumerate(s):
-            xh_mask[i, j, :len(h)].fill_(0)
+    if config['split_history']:
+        history_length = []
+        turn_length = []
+        for s in batch['history']:
+            turn_length.append(len(s))
+            for h in s:
+                history_length.append(len(h))
+        max_h_len = max(history_length)
+        max_t_len = max(turn_length)
+        xh_mask = torch.ByteTensor(batch_size, max_t_len, max_h_len).fill_(1)
+        xh_t_mask = torch.ByteTensor(batch_size, max_t_len).fill_(1)
+        for i, s in enumerate(batch['history']):
+            xh_t_mask[i, :len(s)].fill_(0)
+            for j, h in enumerate(s):
+                xh_mask[i, j, :len(h)].fill_(0)
+
+    else:
+        max_h_len = max([len(h) for h in batch['history']])
+        xh_mask = torch.ByteTensor(batch_size, max_h_len).fill_(1)
+        for i, h in enumerate(batch['history']):
+            xh_mask[i, :len(h)].fill_(0)
 
     # part 3: Char ids
     if not config['use_elmo']:
@@ -245,10 +268,15 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
         for i, d in enumerate(batch['evidence']):
             xd[i, :len(d)].copy_(torch.LongTensor(d))
 
-        xh = torch.LongTensor(batch_size, max_t_len, max_h_len).fill_(0)
-        for i, s in enumerate(batch['history']):
-            for j, h in enumerate(s):
-                xd[i, j, :len(h)].copy_(torch.LongTensor(h))
+        if config['split_history']:
+            xh = torch.LongTensor(batch_size, max_t_len, max_h_len).fill_(0)
+            for i, s in enumerate(batch['history']):
+                for j, h in enumerate(s):
+                    xd[i, j, :len(h)].copy_(torch.LongTensor(h))
+        else:
+            xh = torch.LongTensor(batch_size, max_h_len).fill_(0)
+            for i, h in enumerate(batch['history']):
+                xd[i, :len(h)].copy_(torch.LongTensor(h))
 
         xq_char = torch.LongTensor(batch_size, max_q_len, max_word_len).fill_(0)
         for i, sent in enumerate(batch['question_text']):
@@ -270,25 +298,41 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
                     processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
                 xd_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
 
-        xh_char = torch.LongTensor(batch_size, max_t_len, max_h_len, max_word_len).fill_(0)
-        for i, turns in enumerate(batch['history_text']):
-            for t, sent in enumerate(turns):
+        if config['split_history']:
+            xh_char = torch.LongTensor(batch_size, max_t_len, max_h_len, max_word_len).fill_(0)
+            for i, turns in enumerate(batch['history_text']):
+                for t, sent in enumerate(turns):
+                    for j, word in enumerate(sent):
+                        word = word.lower()
+                        char_range = (len(word) if len(word) < max_word_len else max_word_len)
+                        processed_char = []
+                        for k in range(char_range):
+                            processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
+                        xh_char[i, t, j, :char_range].copy_(torch.LongTensor(processed_char))
+
+        else:
+            xh_char = torch.LongTensor(batch_size, max_h_len, max_word_len).fill_(0)
+            for i, sent in enumerate(batch['history_text']):
                 for j, word in enumerate(sent):
                     word = word.lower()
                     char_range = (len(word) if len(word) < max_word_len else max_word_len)
                     processed_char = []
                     for k in range(char_range):
-                        processed_char.append(char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
-                    xh_char[i, t, j, :char_range].copy_(torch.LongTensor(processed_char))
+                        processed_char.append(
+                            char_vocab[word[k]] if word[k] in char_vocab else char_vocab[Constants._UNK_CHAR])
+                    xd_char[i, j, :char_range].copy_(torch.LongTensor(processed_char))
 
     else:
         xq = batch_to_ids(batch['question_text'])
         xd = batch_to_ids(batch['evidence_text'])
-        temp_xh = []
-        for s in batch['history_text']:
-            s.extend([[] for _ in range(max_t_len - len(s))])
-            temp_xh.extend(s)
-        xh = batch_to_ids(temp_xh).view(batch_size, max_t_len, max_h_len, 50)
+        if config['split_history']:
+            temp_xh = []
+            for s in batch['history_text']:
+                s.extend([[] for _ in range(max_t_len - len(s))])
+                temp_xh.extend(s)
+            xh = batch_to_ids(temp_xh).view(batch_size, max_t_len, max_h_len, 50)
+        else:
+            xh = batch_to_ids(batch['history_text'])
 
     # Part 4: Target representations
     if not batch['targets'][0]:
