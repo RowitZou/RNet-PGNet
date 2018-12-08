@@ -15,7 +15,7 @@ class RNet(nn.Module):
                                                 weights_file=config['elmo_weights'],
                                                 requires_grad=config['elmo_fine_tune'])
             # Elmo embedding size: 1024
-            q_input_size = p_input_size = h_input_size = 1024
+            q_input_size = p_input_size = h_input_size = 512
 
         else:
             self.w_embedding = module.WordEmbedLayer(vocab_size=word_model.vocab_size,
@@ -48,39 +48,58 @@ class RNet(nn.Module):
                                                       dropout_rnn=config['dropout_rnn'],
                                                       dropout_embed=config['dropout_emb'])
 
-        self.h_q_encoder = module.DotAttentionEncoder(
-            input_size=hidden_size * 2 * config['sent_rnn_layers'],
-            memory_size=hidden_size * 2 * config['sent_rnn_layers'],
-            hidden_size=hidden_size,
-            dropout=config['dropout_rnn']
-        )
+        q_encode_size = p_encode_size = h_encode_size = hidden_size * 2 * config['sent_rnn_layers']
 
-        self.p_q_encoder = module.DotAttentionEncoder(
-            input_size=hidden_size * 2 * config['sent_rnn_layers'] + hidden_size * 2,
-            memory_size=hidden_size * 2 * config['sent_rnn_layers'],
-            hidden_size=hidden_size,
-            dropout=config['dropout_rnn']
+        """
+        self.q_h_encoder = module.DotAttentionEncoder(
+            input_size=h_encode_size,
+            hidden_size=h_encode_size // 2,
+            dropout=config['dropout_rnn'],
+            mem_1_size=q_encode_size
         )
-
-        self.q_p_encoder = module.DotAttentionEncoder(
-            input_size=hidden_size * 2 * config['sent_rnn_layers'],
-            memory_size=hidden_size * 2 * config['sent_rnn_layers'] + hidden_size * 4,
-            hidden_size=hidden_size,
-            dropout=config['dropout_rnn']
-        )
-
-        self.self_match_encoder = module.DotAttentionEncoder(
+        
+        self.h_h_encoder = module.DotAttentionEncoder(
             input_size=hidden_size * 2,
             memory_size=hidden_size * 2,
             hidden_size=hidden_size,
             dropout=config['dropout_rnn']
         )
 
-        self.pointer_net = module.OutputLayer(
-            q_input_size=hidden_size * 2 * config['sent_rnn_layers'] + hidden_size * 2,
-            p_input_size=hidden_size * 2,
+        self.h_q_encoder_att = module.DotAttentionEncoder(
+            input_size=q_encode_size,
+            memory_size=h_encode_size + hidden_size * 2,
             hidden_size=hidden_size,
             dropout=config['dropout_rnn']
+        )
+
+        self.h_q_encoder_routing = module.DotRoutingEncoder(
+            input_size=q_encode_size,
+            memory_size=h_encode_size + hidden_size * 2,
+            hidden_size=hidden_size,
+            dropout=config['dropout_rnn']
+        )
+        """
+        self.q_p_encoder = module.DotAttentionEncoder(
+            input_size=p_encode_size,
+            hidden_size=hidden_size,
+            dropout=config['dropout_rnn'],
+            mem_1_size=q_encode_size,
+            mem_2_size=h_encode_size
+        )
+
+        self.p_p_encoder = module.DotAttentionEncoder(
+            input_size=hidden_size * 2,
+            hidden_size=hidden_size,
+            dropout=config['dropout_rnn'],
+            mem_1_size=hidden_size * 2
+        )
+
+        self.pointer_net = module.OutputLayer(
+            q_input_size=q_encode_size,
+            p_input_size=hidden_size * 2,
+            hidden_size=hidden_size,
+            dropout=config['dropout_rnn'],
+            h_input_size=h_encode_size
         )
 
     def forward(self, ex):
@@ -113,11 +132,15 @@ class RNet(nn.Module):
         question = self.question_encoder(q_emb)
         passage = self.passage_encoder(p_emb)
         history = self.history_encoder(h_emb)
-        h_q = self.h_q_encoder(history, question, h_mask)
-        p_q = self.p_q_encoder(passage, torch.cat([question, h_q], dim=-1), p_mask)
-        q_p = self.q_p_encoder(torch.cat([question, h_q, p_q], dim=-1), passage, q_mask)
-        passage = self.self_match_encoder(q_p, q_p, p_mask)
-        pre = self.pointer_net(torch.cat([question, h_q], dim=-1), passage, q_mask, p_mask)
+        # q_h = self.q_h_encoder(history, question, q_mask)
+        # h_h = self.h_h_encoder(q_h, q_h, h_mask)
+        # h_q_att = self.h_q_encoder_att(torch.cat([history, q_h], dim=-1), question, h_mask)
+        # print(self.h_q_encoder_att.attention[0])
+        # h_q_routing = self.h_q_encoder_routing(torch.cat([history, h_h], dim=-1), question, h_mask, q_mask)
+        # print(self.h_q_encoder_routing.attention[0])
+        q_p = self.q_p_encoder(passage, question, q_mask, history, h_mask)
+        p_p = self.p_p_encoder(q_p, q_p, p_mask)
+        pre = self.pointer_net(question, p_p, q_mask, p_mask, history, h_mask)
 
         return {'score_s': pre[0].transpose(0, 1),
                 'score_e': pre[1].transpose(0, 1),

@@ -62,7 +62,7 @@ class CoQADataset(Dataset):
                             history_temp.append(history_i)
                     qas['annotated_history'] = history_temp
                 else:
-                    history_temp = []
+                    history_temp = ['#']
                     if n_history > 0:
                         for i, (q, a) in enumerate(history[-n_history:]):
                             d = n_history - i
@@ -215,7 +215,9 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
     # Check there is at least one valid example in batch (containing targets):
     if not batch:
         return None
-
+    # print()
+    # print(batch['question_text'][0])
+    # print(batch['history_text'][0])
     # Relevant parameters:
     batch_size = len(batch['question'])
 

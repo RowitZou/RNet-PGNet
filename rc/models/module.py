@@ -126,9 +126,9 @@ class SentenceEncoder(nn.Module):
         return outputs
 
 
-class DotAttentionEncoder(nn.Module):
+class DotRoutingEncoder(nn.Module):
     def __init__(self, input_size, memory_size, hidden_size, dropout):
-        super(DotAttentionEncoder, self).__init__()
+        super(DotRoutingEncoder, self).__init__()
         self.hidden_size = hidden_size
         self.input_linear = nn.Sequential(
             RNNDropout(dropout),
@@ -143,10 +143,11 @@ class DotAttentionEncoder(nn.Module):
         self.gate = Gate(input_size + memory_size)
         self.rnn = nn.GRU(input_size=input_size + memory_size, hidden_size=hidden_size, bidirectional=True)
 
-    def forward(self, memory_input, seq_input, memory_mask):
+    def forward(self, memory_input, seq_input, memory_mask, input_mask):
         memory_input = memory_input.transpose(0, 1)
         seq_input = seq_input.transpose(0, 1)  # Turn into batch first.
         memory_mask = memory_mask.transpose(0, 1)  # Turn into batch first.
+        input_mask = input_mask.transpose(0, 1)
 
         input_ = self.input_linear(seq_input)
         memory_ = self.memory_linear(memory_input)
@@ -155,15 +156,103 @@ class DotAttentionEncoder(nn.Module):
         scores = input_.bmm(memory_.transpose(2, 1)) / (self.hidden_size ** 0.5)  # (batch, len1, len2)
 
         # Mask padding
-        memory_mask = memory_mask.unsqueeze(1).expand(scores.size())  # (batch, len1, len2)
-        scores.masked_fill_(memory_mask, -float('inf'))
+        scores.masked_fill_(input_mask.unsqueeze(2).expand(scores.size()), -float('inf'))
 
         # Normalize with softmax
-        alpha = F.softmax(scores, dim=-1)
+        alpha = F.softmax(scores, dim=1)
 
+        mask = memory_input.new_ones(scores.size(), requires_grad=False)
+        memory_mask = memory_mask.unsqueeze(1).expand(scores.size())
+        mask.masked_fill_(memory_mask, float(0))
+
+        alpha = alpha * mask
+        # self.attention = alpha
         # Take weighted average
         matched_seq = alpha.bmm(memory_input)
+
+        # seq_input.masked_fill_(input_mask.unsqueeze(2), float(0))
         rnn_input = torch.cat((seq_input, matched_seq), dim=-1).transpose(0, 1)
+        rnn_input = self.gate(rnn_input)
+
+        self.rnn.flatten_parameters()
+        output, _ = self.rnn(rnn_input)
+        return output
+
+
+class DotAttentionEncoder(nn.Module):
+    def __init__(self, input_size, hidden_size, dropout, mem_1_size, mem_2_size=None):
+        super(DotAttentionEncoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.input_linear = nn.Sequential(
+            RNNDropout(dropout),
+            nn.Linear(input_size, hidden_size, bias=False),
+            nn.ReLU()
+        )
+        self.memory_1_linear = nn.Sequential(
+            RNNDropout(dropout),
+            nn.Linear(mem_1_size, hidden_size, bias=False),
+            nn.ReLU()
+        )
+        if mem_2_size:
+            self.memory_2_linear = nn.Sequential(
+                RNNDropout(dropout),
+                nn.Linear(mem_2_size, hidden_size, bias=False),
+                nn.ReLU()
+            )
+            self.gate = Gate(input_size + mem_1_size + mem_2_size)
+            self.rnn = nn.GRU(input_size=input_size + mem_1_size + mem_2_size, hidden_size=hidden_size,
+                              bidirectional=True)
+        else:
+            self.gate = Gate(input_size + mem_1_size)
+            self.rnn = nn.GRU(input_size=input_size + mem_1_size, hidden_size=hidden_size,
+                              bidirectional=True)
+
+    def forward(self, seq_input, mem_1_input, mem_1_mask, mem_2_input=None, mem_2_mask=None):
+        seq_input = seq_input.transpose(0, 1)  # Turn into batch first.
+        mem_1_input = mem_1_input.transpose(0, 1)
+        mem_1_mask = mem_1_mask.transpose(0, 1)  # Turn into batch first.
+
+        input_ = self.input_linear(seq_input)
+        memory_1 = self.memory_1_linear(mem_1_input)
+
+        # Compute scores
+        scores_1 = input_.bmm(memory_1.transpose(2, 1)) / (self.hidden_size ** 0.5)  # (batch, len1, len2)
+
+        # Mask padding
+        mem_1_mask = mem_1_mask.unsqueeze(1).expand(scores_1.size())  # (batch, len1, len2)
+        scores_1.masked_fill_(mem_1_mask, -float('inf'))
+
+        # Normalize with softmax
+        alpha_1 = F.softmax(scores_1, dim=-1)
+        # self.attention = alpha
+        # Take weighted average
+        matched_seq_1 = alpha_1.bmm(mem_1_input)
+
+        if not (mem_2_input is None):
+            assert not (mem_2_mask is None)
+            mem_2_input = mem_2_input.transpose(0, 1)
+            mem_2_mask = mem_2_mask.transpose(0, 1)  # Turn into batch first.
+
+            memory_2 = self.memory_2_linear(mem_2_input)
+
+            # Compute scores
+            scores_2 = input_.bmm(memory_2.transpose(2, 1)) / (self.hidden_size ** 0.5)  # (batch, len1, len2)
+
+            # Mask padding
+            mem_2_mask = mem_2_mask.unsqueeze(1).expand(scores_2.size())  # (batch, len1, len2)
+            scores_2.masked_fill_(mem_2_mask, -float('inf'))
+
+            # Normalize with softmax
+            alpha_2 = F.softmax(scores_2, dim=-1)
+            # self.attention = alpha
+            # Take weighted average
+            matched_seq_2 = alpha_2.bmm(mem_2_input)
+
+            rnn_input = torch.cat((seq_input, matched_seq_1, matched_seq_2), dim=-1).transpose(0, 1)
+
+        else:
+            rnn_input = torch.cat((seq_input, matched_seq_1), dim=-1).transpose(0, 1)
+
         rnn_input = self.gate(rnn_input)
 
         self.rnn.flatten_parameters()
@@ -296,14 +385,9 @@ class SelfMatchEncoder(nn.Module):
 
 
 class OutputLayer(nn.Module):
-    def __init__(self, q_input_size, p_input_size, hidden_size, dropout):
+    def __init__(self, q_input_size, p_input_size, hidden_size, dropout, h_input_size=None):
         super(OutputLayer, self).__init__()
 
-        self.rnn_cell = nn.GRUCell(p_input_size, q_input_size)
-        self.passage_w = nn.ModuleList([
-            nn.Sequential(nn.Dropout(dropout), nn.Linear(p_input_size, hidden_size, bias=False)),
-            nn.Sequential(nn.Dropout(dropout), nn.Linear(q_input_size, hidden_size, bias=False))
-        ])
         self.passage_linear = nn.Sequential(
             nn.Tanh(),
             nn.Linear(hidden_size, 1, bias=False)
@@ -316,14 +400,52 @@ class OutputLayer(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_size, 1, bias=False)
         )
+
         self.V_q = nn.Parameter(torch.randn(q_input_size), requires_grad=True)
 
-    def forward(self, q_input, p_input, q_mask, p_mask):
-        state_weights = self.question_w[0](q_input) + self.question_w[1](self.V_q)
-        state_weights = self.question_linear(state_weights)
-        state_weights.masked_fill_(q_mask.unsqueeze(2), -float('inf'))
-        state_attention = F.softmax(state_weights, dim=0)
-        state = torch.sum(state_attention * q_input, dim=0)
+        if h_input_size:
+            self.history_w = nn.ModuleList([
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(h_input_size, hidden_size, bias=False)),
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(h_input_size, hidden_size, bias=False))
+            ])
+            self.history_linear = nn.Sequential(
+                nn.Tanh(),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+            self.V_h = nn.Parameter(torch.randn(h_input_size), requires_grad=True)
+
+            self.passage_w = nn.ModuleList([
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(p_input_size, hidden_size, bias=False)),
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(q_input_size + h_input_size, hidden_size, bias=False))
+            ])
+            self.rnn_cell = nn.GRUCell(p_input_size, q_input_size + h_input_size)
+
+        else:
+            self.passage_w = nn.ModuleList([
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(p_input_size, hidden_size, bias=False)),
+                nn.Sequential(nn.Dropout(dropout), nn.Linear(q_input_size, hidden_size, bias=False))
+            ])
+            self.rnn_cell = nn.GRUCell(p_input_size, q_input_size)
+
+    def forward(self, q_input, p_input, q_mask, p_mask, h_input=None, h_mask=None):
+        state_weights_q = self.question_w[0](q_input) + self.question_w[1](self.V_q)
+        state_weights_q = self.question_linear(state_weights_q)
+        state_weights_q.masked_fill_(q_mask.unsqueeze(2), -float('inf'))
+        state_attention_q = F.softmax(state_weights_q, dim=0)
+        state_q = torch.sum(state_attention_q * q_input, dim=0)
+
+        if not (h_input is None):
+            assert not (h_mask is None)
+            state_weights_h = self.history_w[0](h_input) + self.history_w[1](self.V_h)
+            state_weights_h = self.history_linear(state_weights_h)
+            state_weights_h.masked_fill_(h_mask.unsqueeze(2), -float('inf'))
+            state_attention_h = F.softmax(state_weights_h, dim=0)
+            state_h = torch.sum(state_attention_h * h_input, dim=0)
+
+            state = torch.cat([state_q, state_h], dim=-1)
+
+        else:
+            state = state_q
 
         pre = []
         p_temp = self.passage_w[0](p_input)
