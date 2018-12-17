@@ -22,7 +22,7 @@ from allennlp.modules.elmo import batch_to_ids
 def prepare_datasets(config):
     train_set = None if config['trainset'] is None else CoQADataset(config['trainset'], config, training=True)
     dev_set = None if config['devset'] is None else CoQADataset(config['devset'], config)
-    test_set = None if config['testset'] is None else CoQADataset(config['testset'], config)
+    test_set = None if config['testset'] is None else CoQADataset(config['testset'], config, testing=True)
     return {'train': train_set, 'dev': dev_set, 'test': test_set}
 
 ################################################################################
@@ -33,8 +33,9 @@ def prepare_datasets(config):
 class CoQADataset(Dataset):
     """CoQA dataset."""
 
-    def __init__(self, filename, config, training=False):
+    def __init__(self, filename, config, training=False, testing=False):
         timer = Timer('Load %s' % filename)
+        self.is_testing = testing
         self.filename = filename
         self.config = config
         paragraph_lens = []
@@ -116,9 +117,11 @@ class CoQADataset(Dataset):
         sample = {'id': (paragraph['id'], qas['turn_id']),
                   'question': question,
                   'history': history,
-                  'answers': answers,
+                  'answers': None,
                   'evidence': paragraph['annotated_context'],
                   'targets': None}
+        if not self.is_testing:
+            sample['answers'] = answers
         if 'answer_span' in qas:
             sample['targets'] = qas['answer_span']
 
@@ -354,6 +357,9 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
 
     torch.set_grad_enabled(training)
 
+    if batch['answers'][0] is None:
+        batch['answers'] = None
+
     if not config['use_elmo']:
         example = {'batch_size': batch_size,
                    'answers': batch['answers'],
@@ -366,7 +372,8 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
                    'xd': xd.to(device) if device else xd,
                    'xd_mask': xd_mask.to(device) if device else xd_mask,
                    'xd_char': xd_char.to(device) if device else xd_char,
-                   'evidence_text': batch['evidence_text']}
+                   'evidence_text': batch['evidence_text'],
+                   'targets': None}
     else:
         example = {'batch_size': batch_size,
                    'answers': batch['answers'],
@@ -376,7 +383,8 @@ def vectorize_input(batch, config, char_vocab, training=True, device=None):
                    'xh_mask': xh_mask.to(device) if device else xh_mask,
                    'xd': xd.to(device) if device else xd,
                    'xd_mask': xd_mask.to(device) if device else xd_mask,
-                   'evidence_text': batch['evidence_text']}
+                   'evidence_text': batch['evidence_text'],
+                   'targets': None}
     if not targets is None:
         example['targets'] = targets.to(device) if device else targets
 

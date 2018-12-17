@@ -60,7 +60,7 @@ class Model(object):
 
     def init_saved_network(self, saved_dir):
         _ARGUMENTS = ['embed_size', 'hidden_size', 'max_word_length', 'sent_rnn_layers', 'use_elmo',
-                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb']
+                      'sum_loss', 'fix_embeddings', 'dropout_rnn', 'dropout_emb', 'rnn_hidden_size']
 
         # Load all saved fields.
         fname = os.path.join(saved_dir, Constants._SAVED_WEIGHTS_FILE)
@@ -136,7 +136,8 @@ class Model(object):
 
         if (not update) or self.config['predict_train']:
             predictions, spans = self.extract_predictions(ex, score_s, score_e)
-            output['f1'], output['em'] = self.evaluate_predictions(predictions, ex['answers'])
+            if not (ex['answers'] is None) :
+                output['f1'], output['em'] = self.evaluate_predictions(predictions, ex['answers'])
             if out_predictions:
                 output['predictions'] = predictions
                 output['spans'] = spans

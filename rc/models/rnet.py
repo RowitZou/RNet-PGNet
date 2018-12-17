@@ -8,13 +8,13 @@ class RNet(nn.Module):
         super(RNet, self).__init__()
 
         self.config = config
-        self.hidden_size = hidden_size = config['hidden_size']
+        self.rnn_hidden_size = rnn_hidden_size = config['rnn_hidden_size']
 
         if config['use_elmo']:
             self.w_embedding = module.ElmoLayer(options_file=config['elmo_options'],
                                                 weights_file=config['elmo_weights'],
                                                 requires_grad=config['elmo_fine_tune'])
-            # Elmo embedding size: 1024
+            # Elmo embedding size: 512
             q_input_size = p_input_size = h_input_size = 512
 
         else:
@@ -24,31 +24,31 @@ class RNet(nn.Module):
                                                      fix_embeddings=config['fix_embeddings'])
 
             self.char_encoder = module.CharEncoder(char_emb_size=config['embed_size'],
-                                                   hidden_size=hidden_size)
+                                                   hidden_size=rnn_hidden_size)
 
             input_w_dim = self.w_embedding.embedding_dim
 
-            q_input_size = p_input_size = h_input_size = input_w_dim + hidden_size * 2
+            q_input_size = p_input_size = h_input_size = input_w_dim + rnn_hidden_size * 2
 
         self.passage_encoder = module.SentenceEncoder(input_size=p_input_size,
-                                                      hidden_size=hidden_size,
+                                                      hidden_size=rnn_hidden_size,
                                                       num_layers=config['sent_rnn_layers'],
                                                       dropout_rnn=config['dropout_rnn'],
                                                       dropout_embed=config['dropout_emb'])
 
         self.question_encoder = module.SentenceEncoder(input_size=q_input_size,
-                                                       hidden_size=hidden_size,
+                                                       hidden_size=rnn_hidden_size,
                                                        num_layers=config['sent_rnn_layers'],
                                                        dropout_rnn=config['dropout_rnn'],
                                                        dropout_embed=config['dropout_emb'])
 
         self.history_encoder = module.SentenceEncoder(input_size=h_input_size,
-                                                      hidden_size=hidden_size,
+                                                      hidden_size=rnn_hidden_size,
                                                       num_layers=config['sent_rnn_layers'],
                                                       dropout_rnn=config['dropout_rnn'],
                                                       dropout_embed=config['dropout_emb'])
 
-        q_encode_size = p_encode_size = h_encode_size = hidden_size * 2 * config['sent_rnn_layers']
+        q_encode_size = p_encode_size = h_encode_size = rnn_hidden_size * 2 * config['sent_rnn_layers']
 
         """
         self.q_h_encoder = module.DotAttentionEncoder(
@@ -81,23 +81,23 @@ class RNet(nn.Module):
         """
         self.q_p_encoder = module.DotAttentionEncoder(
             input_size=p_encode_size,
-            hidden_size=hidden_size,
+            hidden_size=config['hidden_size'],
             dropout=config['dropout_rnn'],
             mem_1_size=q_encode_size,
             mem_2_size=h_encode_size
         )
 
         self.p_p_encoder = module.DotAttentionEncoder(
-            input_size=hidden_size * 2,
-            hidden_size=hidden_size,
+            input_size=config['hidden_size'] * 2,
+            hidden_size=config['hidden_size'],
             dropout=config['dropout_rnn'],
-            mem_1_size=hidden_size * 2
+            mem_1_size=config['hidden_size'] * 2
         )
 
         self.pointer_net = module.OutputLayer(
             q_input_size=q_encode_size,
-            p_input_size=hidden_size * 2,
-            hidden_size=hidden_size,
+            p_input_size=config['hidden_size'] * 2,
+            hidden_size=config['hidden_size'],
             dropout=config['dropout_rnn'],
             h_input_size=h_encode_size
         )

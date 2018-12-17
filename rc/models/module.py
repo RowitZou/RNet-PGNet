@@ -5,29 +5,36 @@ from rc.utils import constants as Constants
 from allennlp.modules.elmo import Elmo
 
 
+class RNNDropout(nn.Module):
+    def __init__(self, p, batch_first=True):
+        super().__init__()
+        self.dropout_rate = p
+        self.batch_first = batch_first
+
+    def forward(self, input):
+
+        if (not self.training) or self.dropout_rate == 0:
+            return input
+        if self.batch_first:
+            mask = input.new(input.size(0), 1, input.size(2)).bernoulli_(1.- self.dropout_rate).div_(1.- self.dropout_rate)
+        else:
+            mask = input.new(1, input.size(1), input.size(2)).bernoulli_(1.- self.dropout_rate).div_(1.- self.dropout_rate)
+
+        mask = mask.expand_as(input)
+        return mask * input
+
+
 class Gate(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, dropout):
         super(Gate, self).__init__()
         self.gate = nn.Sequential(
+            RNNDropout(dropout, batch_first=False),
             nn.Linear(input_size, input_size, bias=True),
             nn.Sigmoid()
         )
 
     def forward(self, input):
         return input * self.gate(input)
-
-
-class RNNDropout(nn.Module):
-    def __init__(self, p):
-        super().__init__()
-        self.dropout = nn.Dropout(p)
-
-    def forward(self, input):
-
-        if not self.training:
-            return input
-        mask = input.new_ones(input.size(0), 1, input.size(2), requires_grad=False)
-        return self.dropout(mask) * input
 
 
 class ElmoLayer(nn.Module):
@@ -95,7 +102,7 @@ class SentenceEncoder(nn.Module):
         self.num_layers = num_layers
         self.sentence_encoder = nn.ModuleList([
             nn.Sequential(
-                nn.Dropout(dropout_embed),
+                RNNDropout(dropout_embed, batch_first=False),
                 nn.GRU(input_size=input_size,
                        hidden_size=hidden_size,
                        bidirectional=True)
@@ -104,8 +111,8 @@ class SentenceEncoder(nn.Module):
             for i in range(num_layers - 1):
                 self.sentence_encoder.append(
                     nn.Sequential(
-                        nn.Dropout(dropout_rnn),
-                        nn.GRU(input_size=input_size + hidden_size * 2 * (i + 1),
+                        RNNDropout(dropout_rnn, batch_first=False),
+                        nn.GRU(input_size=hidden_size * 2,
                                hidden_size=hidden_size,
                                bidirectional=True)
                     ))
@@ -113,14 +120,12 @@ class SentenceEncoder(nn.Module):
     def forward(self, input_sent):
 
         outputs = list()
-        inputs = list()
-        inputs.append(input_sent)
-
+        inputs = input_sent
         for i in range(self.num_layers):
             self.sentence_encoder[i][1].flatten_parameters()
-            hidden, _ = self.sentence_encoder[i](torch.cat(inputs, dim=-1))
+            hidden, _ = self.sentence_encoder[i](inputs)
             outputs.append(hidden)
-            inputs.append(hidden)
+            inputs = hidden
 
         outputs = torch.cat(outputs, dim=-1)
         return outputs
@@ -140,7 +145,7 @@ class DotRoutingEncoder(nn.Module):
             nn.Linear(memory_size, hidden_size, bias=False),
             nn.ReLU()
         )
-        self.gate = Gate(input_size + memory_size)
+        self.gate = Gate(input_size + memory_size, dropout)
         self.rnn = nn.GRU(input_size=input_size + memory_size, hidden_size=hidden_size, bidirectional=True)
 
     def forward(self, memory_input, seq_input, memory_mask, input_mask):
@@ -199,11 +204,11 @@ class DotAttentionEncoder(nn.Module):
                 nn.Linear(mem_2_size, hidden_size, bias=False),
                 nn.ReLU()
             )
-            self.gate = Gate(input_size + mem_1_size + mem_2_size)
+            self.gate = Gate(input_size + mem_1_size + mem_2_size, dropout)
             self.rnn = nn.GRU(input_size=input_size + mem_1_size + mem_2_size, hidden_size=hidden_size,
                               bidirectional=True)
         else:
-            self.gate = Gate(input_size + mem_1_size)
+            self.gate = Gate(input_size + mem_1_size, dropout)
             self.rnn = nn.GRU(input_size=input_size + mem_1_size, hidden_size=hidden_size,
                               bidirectional=True)
 
