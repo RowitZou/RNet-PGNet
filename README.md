@@ -27,10 +27,24 @@ The seq2seq part is an old version of [OpenNMT](https://github.com/OpenNMT/OpenN
   python scripts/gen_seq2seq_output.py --data_file data/coqa-dev-v1.0.json --pred_file pipeline_models/pred.txt --output_file pipeline_models/pipeline.prediction.json
 ```
 
-## Result
+## Test Dataset Result
 
 See [CoQA Board](https://stanfordnlp.github.io/coqa/)
 
 |In-domain | Out-of-domain | Overall |
 |---------|----------|-------|
 |68.1|62.3|66.4|
+
+## Codalab
+
+You can test the trained model on [codalab](https://worksheets.codalab.org).
+
+coqa-dev-v1.0.json uuid: 0xe25482
+
+RNet+PGNet model uuid: 0xa8efc0
+
+codalab command: 
+```bash
+cl run :coqa-dev-v1.0.json :RNet_DotAtt 'sh RNet_DotAtt/run_on_codalab.sh' --request-docker-image floydhub/pytorch:0.4.1-gpu.cuda9cudnn7-py3.34 --request-gpus 1 --request-memory 10g --request-network
+```
+
