@@ -26,3 +26,11 @@ The seq2seq part is an old version of [OpenNMT](https://github.com/OpenNMT/OpenN
   python seq2seq/translate.py -model pipeline_models/seq2seq_copy_acc_85.00_ppl_2.18_e16.pt -src pipeline_models/pipeline-seq2seq-src.txt -output pipeline_models/pred.txt -replace_unk -verbose -gpu 0
   python scripts/gen_seq2seq_output.py --data_file data/coqa-dev-v1.0.json --pred_file pipeline_models/pred.txt --output_file pipeline_models/pipeline.prediction.json
 ```
+
+## Result
+
+See [CoQA Board](https://stanfordnlp.github.io/coqa/)
+
+|In-domain | Out-of-domain | Overall |
+|---------|----------|-------|
+|68.1|62.3|66.4|
