@@ -1,9 +1,47 @@
 # RNet_DotAtt + PGNet
 
-It is a CoQA model. 
+It is a CoQA model modified from [coqa-baselines](https://github.com/stanfordnlp/coqa-baselines). 
 
 The seq2seq part is an old version of [OpenNMT](https://github.com/OpenNMT/OpenNMT-py/tree/c199de0fb738c33c02c76a392005e94f6b89add3) 
 
+## Requirements
+```
+torch==0.4.1
+torchtext==0.2.3
+allennlp
+gensim
+pycorenlp
+```
+
+## Download
+Download the dataset:
+```bash
+  mkdir data
+  wget -P data https://nlp.stanford.edu/data/coqa/coqa-train-v1.0.json
+  wget -P data https://nlp.stanford.edu/data/coqa/coqa-dev-v1.0.json
+```
+
+Download pre-trained word vectors:
+```bash
+  mkdir wordvecs
+  wget -P wordvecs http://nlp.stanford.edu/data/wordvecs/glove.42B.300d.zip
+  unzip -d wordvecs wordvecs/glove.42B.300d.zip
+  wget -P wordvecs http://nlp.stanford.edu/data/wordvecs/glove.840B.300d.zip
+  unzip -d wordvecs wordvecs/glove.840B.300d.zip
+  
+  mkdir elmo
+  wget -O elmo/elmo_options_512.json https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x2048_256_2048cnn_1xhighway/elmo_2x2048_256_2048cnn_1xhighway_options.json
+  wget -O elmo/elmo_weights_512.hdf5 https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x2048_256_2048cnn_1xhighway/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5
+
+```
+
+## Start a CoreNLP server
+
+```bash
+  mkdir lib
+  wget -P lib http://central.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/3.9.1/stanford-corenlp-3.9.1.jar
+  java -mx4g -cp lib/stanford-corenlp-3.9.1.jar edu.stanford.nlp.pipeline.StanfordCoreNLPServer -port 9000 -timeout 15000
+```
 ## Preprocessing
 ```bash
   python scripts/gen_pipeline_data.py --data_file data/coqa-train-v1.0.json --output_file1 data/coqa.train.pipeline.json --output_file2 data/seq2seq-train-pipeline
