@@ -1,5 +1,9 @@
-# Q-Net
-A CoQA model
+# RNet_DotAtt + PGNet
+
+It is a CoQA model. 
+
+The seq2seq part is an old version of [OpenNMT](https://github.com/OpenNMT/OpenNMT-py/tree/c199de0fb738c33c02c76a392005e94f6b89add3) 
+
 ## Preprocessing
 ```bash
   python scripts/gen_pipeline_data.py --data_file data/coqa-train-v1.0.json --output_file1 data/coqa.train.pipeline.json --output_file2 data/seq2seq-train-pipeline
@@ -11,13 +15,13 @@ A CoQA model
 ## Training
 `n_history` can be changed to {0, 1, 2, ..} or -1.
 ```bash
-  PYTHONPATH=. python rc/main.py --trainset data/coqa.train.pipeline.json --devset data/coqa.dev.pipeline.json --n_history 2 --dir pipeline_models --embed_file wordvecs/glove.840B.300d.txt
+  CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python rc/main.py --trainset data/coqa.train.pipeline.json --devset data/coqa.dev.pipeline.json --n_history 2 --dir pipeline_models --use_elmo true --use_multi_gpu true
   python seq2seq/train.py -data data/seq2seq-pipeline -save_model pipeline_models/seq2seq_copy -copy_attn -reuse_copy_attn -word_vec_size 300 -pre_word_vecs_enc data/seq2seq-pipeline.embed.enc.pt -pre_word_vecs_dec data/seq2seq-pipeline.embed.dec.pt -epochs 50 -gpuid 0 -seed 123
 ```
 
 ## Testing
 ```bash
-  PYTHONPATH=. python rc/main.py --testset data/coqa.dev.pipeline.json --n_history 2 --pretrained pipeline_models
+  PYTHONPATH=. python rc/main.py --testset data/coqa.dev.pipeline.json --n_history 2 --pretrained pipeline_models --batch_size 16
   python scripts/gen_pipeline_for_seq2seq.py --data_file data/coqa.dev.pipeline.json --output_file pipeline_models/pipeline-seq2seq-src.txt --pred_file pipeline_models/predictions.json
   python seq2seq/translate.py -model pipeline_models/seq2seq_copy_acc_85.00_ppl_2.18_e16.pt -src pipeline_models/pipeline-seq2seq-src.txt -output pipeline_models/pred.txt -replace_unk -verbose -gpu 0
   python scripts/gen_seq2seq_output.py --data_file data/coqa-dev-v1.0.json --pred_file pipeline_models/pred.txt --output_file pipeline_models/pipeline.prediction.json
